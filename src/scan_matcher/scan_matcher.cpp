@@ -447,7 +447,7 @@ int main(int argc, char *argv[])
   }
   app->botframes = bot_frames_get_global(app->lcm, app->botparam);
   app->botframes_cpp = new bot::frames(app->botframes);
-  app->botframes_cpp->get_trans_with_utime( app->botframes ,  "body", "HORIZONTAL_SCAN", 0, app->scan_to_body);
+  app->botframes_cpp->get_trans_with_utime( app->botframes ,  "body", app->lidar_chan, 0, app->scan_to_body);
 
   // Initialise Scan Matcher such that robot body is a 0,0,0
   Eigen::Isometry3d body_to_scan = app->scan_to_body.inverse();

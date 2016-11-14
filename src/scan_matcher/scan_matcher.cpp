@@ -10,9 +10,7 @@
 #include <zlib.h>
 #include <deque>
 #include <pthread.h>
-#include <bot_core/bot_core.h>
 #include <bot_lcmgl_client/lcmgl.h>
-#include <GL/gl.h>
 
 #include <bot_param/param_client.h>
 #include <bot_frames/bot_frames.h>
@@ -165,7 +163,6 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
       frsm_rotateCov2D(cur_odom.cov, -cur_odom.theta, rel_odom.cov);
       frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan.c_str(), &rel_odom);
     }
-
   }
 
   if (app->publish_pose) {
@@ -188,10 +185,9 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
     Eigen::Quaterniond quat = Eigen::Quaterniond(pose.orientation[0], pose.orientation[1], 
                                                  pose.orientation[2], pose.orientation[3]);
     scanPose.rotate(quat);     
-    Eigen::Isometry3d bodyPose =  scanPose*app->scan_to_body ;
+    Eigen::Isometry3d bodyPose =  scanPose*app->scan_to_body;
     frsm_pose_t pose_msg = getPoseAsBotPose(bodyPose, pose.utime);
     frsm_pose_t_publish(app->lcm, app->pose_chan.c_str(), &pose_msg);
-
   }
   frsm_tictoc("recToSend");
 
@@ -224,7 +220,6 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
 
   free(points);
   frsm_tictoc("process_laser");
-
 }
 
 sig_atomic_t not_killed = 1;
@@ -303,8 +298,7 @@ int main(int argc, char *argv[])
   app->maxRange = 29.7;
   app->laser_queue = new deque<frsm_planar_lidar_t *>();
 
-  bool isUtm = true;
-  bool isUrg = false, isSick = false;
+  bool isUtm = false, isUrg = false, isSick = false;
 
   std::string param_file = ""; // short filename e.g. 'husky/robot.cfg'
 
@@ -336,6 +330,8 @@ int main(int argc, char *argv[])
   if (numModes > 1) {
     fprintf(stderr, "Only one lidar type may be specified at once\n");
     opt.usage(true);
+  } else if (numModes == 0) {
+    isUtm = true;
   }
 
   if (opt.wasParsed("fov")) {
@@ -354,8 +350,7 @@ int main(int argc, char *argv[])
       app->validBeamAngles[0] = -2.1;
       app->validBeamAngles[1] = 2.1;
     }
-  }
-  if (isUrg) {
+  } else if (isUrg) {
     app->laser_type = FRSM_HOKUYO_URG;
     if (!opt.wasParsed("max_range"))
       app->maxRange = 4.0;
@@ -365,8 +360,7 @@ int main(int argc, char *argv[])
       app->validBeamAngles[0] = -2.1;
       app->validBeamAngles[1] = 2.1;
     }
-  }
-  if (isSick) {
+  } else if (isSick) {
     app->laser_type = FRSM_SICK_LMS;
     if (!opt.wasParsed("max_range"))
       app->maxRange = 79.0;

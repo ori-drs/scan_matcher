@@ -304,6 +304,7 @@ int main(int argc, char *argv[])
 
   app->lidar_chan = "LASER";
   app->pose_chan = "POSE";
+  app->odom_chan = "LASER_ODOMETRY";
   app->verbose = 0;
   app->do_drawing = 0;
   app->publish_relative = 0;

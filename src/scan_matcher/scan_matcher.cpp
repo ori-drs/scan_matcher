@@ -62,6 +62,7 @@ public:
   BotFrames* botframes;
   bot::frames* botframes_cpp;
   Eigen::Isometry3d scan_to_body;
+  bool flipRanges = false;
 };
 
 
@@ -87,7 +88,7 @@ static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)),
 
 static inline frsm_pose_t getPoseAsBotPose(Eigen::Isometry3d pose, int64_t utime){
   frsm_pose_t pose_msg;
-  pose_msg.utime =   utime;
+  pose_msg.utime = utime;
   pose_msg.pos[0] = pose.translation().x();
   pose_msg.pos[1] = pose.translation().y();
   pose_msg.pos[2] = pose.translation().z();  
@@ -109,12 +110,25 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
   frsm_tictoc("process_laser");
   frsm_tictoc("recToSend");
 
+  int nranges = msg->nranges;
+  float *ranges = NULL;
+  ranges = (float *)realloc(ranges, nranges * sizeof(float));
+
+  // Flip order of points if sensor is mounted upside down
+  if (app->flipRanges)
+    for (int i = 0; i < nranges; i++) ranges[nranges - i] = msg->ranges[i];
+  else
+    for (int i = 0; i < nranges; i++) ranges[i] = msg->ranges[i];
+
   ////////////////////////////////////////////////////////////////////
   //Project ranges into points, and decimate points so we don't have too many
   ////////////////////////////////////////////////////////////////////
-  frsmPoint * points = (frsmPoint *) calloc(msg->nranges, sizeof(frsmPoint));
-  int numValidPoints = frsm_projectRangesAndDecimate(app->beam_skip, app->spatialDecimationThresh, msg->ranges,
-      msg->nranges, msg->rad0, msg->radstep, points, app->minRange, app->maxRange, app->validBeamAngles[0], app->validBeamAngles[1]);
+  frsmPoint *points = (frsmPoint *)calloc(nranges, sizeof(frsmPoint));
+
+  int numValidPoints = frsm_projectRangesAndDecimate(
+      app->beam_skip, app->spatialDecimationThresh, ranges, nranges, msg->rad0,
+      msg->radstep, points, app->minRange, app->maxRange,
+      app->validBeamAngles[0], app->validBeamAngles[1]);
   if (numValidPoints < 30) {
     fprintf(stderr, "WARNING! NOT ENOUGH VALID POINTS! numValid=%d\n", numValidPoints);
     return;
@@ -181,11 +195,21 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
     // to give the pose of the robot's body
     Eigen::Isometry3d scanPose;
     scanPose.setIdentity();
-    scanPose.translation()  << pose.pos[0], pose.pos[1], 0;
+    scanPose.translation() << pose.pos[0], pose.pos[1], 0;
+
     Eigen::Quaterniond quat = Eigen::Quaterniond(pose.orientation[0], pose.orientation[1], 
                                                  pose.orientation[2], pose.orientation[3]);
-    scanPose.rotate(quat);     
-    Eigen::Isometry3d bodyPose =  scanPose*app->scan_to_body;
+    scanPose.rotate(quat);
+
+    // If flipRanges, we need to also rotate around x again
+    if (app->flipRanges) {
+      Eigen::Isometry3d rotateAboutX;
+      rotateAboutX.setIdentity();
+      rotateAboutX.rotate(Eigen::Quaterniond(0,1,0,0));
+      scanPose = scanPose * rotateAboutX;
+    }
+
+    Eigen::Isometry3d bodyPose = scanPose * app->scan_to_body;
     frsm_pose_t pose_msg = getPoseAsBotPose(bodyPose, pose.utime);
     frsm_pose_t_publish(app->lcm, app->pose_chan.c_str(), &pose_msg);
   }
@@ -324,6 +348,8 @@ int main(int argc, char *argv[])
   opt.add(app->beam_skip, "B", "beam_skip", "Skipe every n beams");
   opt.add(app->spatialDecimationThresh, "D", "spatial_decimation", "Spatial decimation threshold in meters");
   opt.add(fov_string, "F", "fov", "Valid portion of the field of view <min,max> in radians");
+  // Determined automatically
+  // opt.add(app->flipRanges, "f", "flip_ranges", "Flip range measurements, e.g. if sensor is mounted upside down");
   opt.parse();
 
   int numModes = (int) isUtm + (int) isUrg + (int) isSick;
@@ -448,16 +474,22 @@ int main(int argc, char *argv[])
   ScanTransform startPose;
   memset(&startPose, 0, sizeof(startPose));
 
-  Eigen::Quaterniond quat = Eigen::Quaterniond( body_to_scan.rotation() );
-  double quat_array[] = {quat.w(), quat.x(), quat.y(), quat.z() };
+  Eigen::Quaterniond quat = Eigen::Quaterniond(body_to_scan.rotation());
+  double quat_array[] = { quat.w(), quat.x(), quat.y(), quat.z() };
   double rpy[3];
-  bot_quat_to_roll_pitch_yaw(quat_array, rpy );
+  bot_quat_to_roll_pitch_yaw(quat_array, rpy);
   startPose.x = body_to_scan.translation().x();
   startPose.y = body_to_scan.translation().y();
   startPose.theta = rpy[2];
   std::cout << startPose.x << " " 
             << startPose.y << " " 
             << startPose.theta << " is initial pose\n";
+
+  // Flip ranges if rpy[0] == PI
+  if (fabs(rpy[0])-M_PI < 1e-3) {
+    std::cout << "Laser appears to be mounted upside-down, flipping ranges" << std::endl;
+    app->flipRanges = true;
+  }
 
   app->sm->initSuccessiveMatchingParams(maxNumScans, initialSearchRangeXY, maxSearchRangeXY, initialSearchRangeTheta,
       maxSearchRangeTheta, matchingMode, addScanHitThresh, stationaryMotionModel, motionModelPriorWeight, &startPose);

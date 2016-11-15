@@ -63,6 +63,7 @@ public:
   bot::frames* botframes_cpp;
   Eigen::Isometry3d scan_to_body;
   bool flipRanges = false;
+  double alpha = 1.0;
 };
 
 
@@ -160,6 +161,13 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
   cur_odom.theta = r.theta;
   memcpy(cur_odom.cov, r.sigma, 9 * sizeof(double));
 
+  // If alpha isn't 1.0, i.e. deactivated, alpha-filter odometry output
+  if (app->alpha != 1.0) {
+    cur_odom.pos[0] = app->alpha * app->prev_odom.pos[0] + (1.0-app->alpha) * cur_odom.pos[0];
+    cur_odom.pos[1] = app->alpha * app->prev_odom.pos[1] + (1.0-app->alpha) * cur_odom.pos[1];
+    cur_odom.theta = app->alpha * app->prev_odom.theta + (1.0-app->alpha) * cur_odom.theta;
+  }
+
   if (!app->publish_relative)
     frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan.c_str(), &cur_odom);
   else {
@@ -183,7 +191,6 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
     frsm_pose_t pose;
     memset(&pose, 0, sizeof(pose));
     pose.utime = cur_odom.utime;
-
     memcpy(pose.pos, cur_odom.pos, 2 * sizeof(double));
 
     double rpy[3] = { 0, 0, cur_odom.theta };
@@ -342,6 +349,7 @@ int main(int argc, char *argv[])
   opt.add(isUtm, "T", "UTM", "lidar type is a Hokuyo UTM (best tested/default)");
   opt.add(isUrg, "G", "URG", "lidar type is a Hokuyo URG");
   opt.add(isSick, "S", "SICK", "lidar type is a SICK LMS");
+  opt.add(app->alpha, "a", "alpha", "alpha filter pose output, defaults to 1.0, i.e. no filtering");
 
   opt.addUsageSeperator("\nLow-level options (override settings from lidar type)");
   opt.add(app->minRange, "m", "min_range", "Min range of the lidar\n");
@@ -366,6 +374,9 @@ int main(int argc, char *argv[])
       opt.usage(true);
     }
   }
+
+  if (opt.wasParsed("alpha"))
+    printf("Pose output will be alpha-filtered with alpha=%lf\n", app->alpha);
 
   if (isUtm) {
     if (!opt.wasParsed("max_range"))

@@ -349,8 +349,7 @@ int main(int argc, char *argv[])
   opt.add(app->beam_skip, "B", "beam_skip", "Skipe every n beams");
   opt.add(app->spatialDecimationThresh, "D", "spatial_decimation", "Spatial decimation threshold in meters");
   opt.add(fov_string, "F", "fov", "Valid portion of the field of view <min,max> in radians");
-  // Determined automatically
-  // opt.add(app->flipRanges, "f", "flip_ranges", "Flip range measurements, e.g. if sensor is mounted upside down");
+  opt.add(app->flipRanges, "f", "flip_ranges", "Flip range measurements, e.g. if sensor is mounted upside down");
   opt.parse();
 
   int numModes = (int) isUtm + (int) isUrg + (int) isSick;
@@ -488,12 +487,6 @@ int main(int argc, char *argv[])
   std::cout << startPose.x << " " 
             << startPose.y << " " 
             << startPose.theta << " is initial pose\n";
-
-  // Flip ranges if rpy[0] == PI
-  if (fabs(rpy[0])-M_PI < 1e-3) {
-    std::cout << "Laser appears to be mounted upside-down, flipping ranges" << std::endl;
-    app->flipRanges = true;
-  }
 
   app->sm->initSuccessiveMatchingParams(maxNumScans, initialSearchRangeXY, maxSearchRangeXY, initialSearchRangeTheta,
       maxSearchRangeTheta, matchingMode, addScanHitThresh, stationaryMotionModel, motionModelPriorWeight, &startPose);
